@@ -58,9 +58,14 @@ server.tool(
     }
     console.log(city);
 
+    // Use production MVP backend URL
+    const BACKEND_URL =
+      process.env.MVP_BACKEND_URL ||
+      "https://nirveonx-mvp-backend.onrender.com";
+
     //Fetching available ambulance from database in required city.
     const cityAmbulance = await axios.post(
-      "http://localhost:9000/get-city-ambulance",
+      `${BACKEND_URL}/get-city-ambulance`,
       { city }
     );
 
@@ -204,12 +209,13 @@ Return ONLY valid JSON.`,
           `;
     });
 
-     
     return {
       content: [
         {
           type: "text",
-          text: `${para.name}, your prescriped medicines has been booked with PharmXPlus Active Service.
+          text: `${
+            para.name
+          }, your prescriped medicines has been booked with PharmXPlus Active Service.
 Please keep your phone (${
             para.phoneNumber
           }) near you, your order will reach shortly
@@ -249,23 +255,28 @@ server.tool(
     healthProfessonal: z.string(),
   },
   async (para) => {
-
     let healthProfessonal = para.healthProfessonal.toLowerCase();
-    console.log(healthProfessonal)
+    console.log(healthProfessonal);
     let professionalName = "";
-    if(healthProfessonal == "doctor") {
-       professionalName = "Dr Arun Nayak, MBBS"
-    }else if (healthProfessonal == "medical staff" || "clinical staff" || "caretaker") {
-      professionalName == "Mr. Ashok Chouhan"
-    }else if (healthProfessonal = "nurse") {
+    if (healthProfessonal == "doctor") {
+      professionalName = "Dr Arun Nayak, MBBS";
+    } else if (
+      healthProfessonal == "medical staff" ||
+      "clinical staff" ||
+      "caretaker"
+    ) {
+      professionalName == "Mr. Ashok Chouhan";
+    } else if ((healthProfessonal = "nurse")) {
       professionalName == "Nurse Mary Jane";
     }
-     
+
     return {
       content: [
         {
           type: "text",
-          text: `${para.name}, your appointment has been booked with FastMediX Quick Service.
+          text: `${
+            para.name
+          }, your appointment has been booked with FastMediX Quick Service.
 Please keep your phone (${
             para.phoneNumber
           }) near you, the appointed ${healthProfessonal} will reach shortly
@@ -310,6 +321,133 @@ app.post("/messages", async (req, res) => {
     await transport.handlePostMessage(req, res);
   } else {
     res.status(400).send("No transport found for sessionId");
+  }
+});
+
+// Add simple HTTP REST endpoints for direct tool calls (React Native compatible)
+app.use(express.json());
+
+app.post("/tool/AmboRapid", async (req, res) => {
+  try {
+    const { name, phoneNumber, city } = req.body;
+
+    let userLatitude = 17.4959;
+    let userLongiture = 78.3926;
+    let cityLower = city.toLowerCase();
+
+    if (cityLower != "hyderabad" && cityLower != "bangalore") {
+      return res.json({
+        message: `CAN'T BOOK AMBULANCE in ${city} as right now AmbroRapid Services are operating in Hyderabad and Bangalore only.`,
+      });
+    }
+
+    const BACKEND_URL =
+      process.env.MVP_BACKEND_URL ||
+      "https://nirveonx-mvp-backend.onrender.com";
+    const cityAmbulance = await axios.post(
+      `${BACKEND_URL}/get-city-ambulance`,
+      { city: cityLower }
+    );
+    const cityAmbulanceData = cityAmbulance.data.data;
+
+    let nearestAmbulance = null;
+    let minDistance = Infinity;
+
+    for (const amb of cityAmbulanceData) {
+      const { lat, lng } = amb.location.gps;
+      const distance = haversine(userLatitude, userLongiture, lat, lng);
+      if (distance < minDistance) {
+        minDistance = distance;
+        nearestAmbulance = amb;
+      }
+    }
+
+    res.json({
+      message: `Your ambulance has been booked with AmboRapid Emergency Service.
+Please keep your phone (${phoneNumber}) near you, the driver may contact you shortly.
+
+**Ambulance Details**
+• Ambulance ID: ${nearestAmbulance.id}
+• Max Patient Capacity: ${nearestAmbulance.maxLoad}
+• Preferred Hospital: ${nearestAmbulance.preferredHospital}
+• Estimated Arrival: 15-20 minutes
+
+Emergency Contact: 1-800-AMBORAPID
+Stay calm, help is on the way!`,
+    });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Error booking ambulance: " + error.message });
+  }
+});
+
+app.post("/tool/PharmXPlus", async (req, res) => {
+  try {
+    const { name, phoneNumber, address, prescriptionImageURL } = req.body;
+    res.json({
+      message: `🎉 Order placed successfully with PharmXPlus!
+
+**Order Confirmation**
+Order ID: #PX${Date.now()}
+Patient: ${name}
+Contact: ${phoneNumber}
+Delivery Address: ${address}
+
+**Prescribed Medications:**
+1. Paracetamol 500mg - 10 tablets
+2. Amoxicillin 250mg - 6 capsules
+
+**Prescription:**
+📋 ${prescriptionImageURL}
+
+**Payment Summary**
+• Medicines: ₹450
+• Delivery: ₹50
+Total: ₹500 (Five hundred only)
+
+Estimated Delivery: 45-60 minutes
+Track your order: pharmxplus.com/track`,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Error placing order: " + error.message });
+  }
+});
+
+app.post("/tool/FastMediX", async (req, res) => {
+  try {
+    const { name, phoneNumber, address, healthProfessonal } = req.body;
+    const professionalName =
+      healthProfessonal === "doctor"
+        ? "Dr. Rajesh Kumar"
+        : "Nurse Priya Sharma";
+
+    res.json({
+      message: `✅ Appointment confirmed with FastMediX!
+
+**Appointment Details**
+Booking ID: #FM${Date.now()}
+Patient: ${name}
+Contact: ${phoneNumber}
+Location: ${address}
+
+**Healthcare Professional**
+${healthProfessonal}: ${professionalName}
+Arrival Time: Within 30 minutes
+Specialization: General Medicine
+
+**Service Summary**
+• Service Cost: ₹500
+• Checkup: ₹300
+Total: ₹800 (Eight hundred only)
+
+The ${healthProfessonal} will contact you shortly.
+Emergency: 1-800-FASTMEDIX`,
+    });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Error booking appointment: " + error.message });
   }
 });
 
