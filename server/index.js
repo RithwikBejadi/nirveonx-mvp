@@ -456,6 +456,196 @@ Emergency: 1-800-FASTMEDIX`,
   }
 });
 
+// AI-Powered Smart Chat Endpoint
+app.post("/chat", async (req, res) => {
+  try {
+    const { message } = req.body;
+
+    if (!message) {
+      return res.json({ message: "Please send a message!" });
+    }
+
+    console.log("Chat received:", message);
+
+    // Use Groq LLM to understand intent and extract parameters
+    const llmResponse = await fetch(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "llama-3.1-8b-instant",
+          temperature: 0.1,
+          max_tokens: 500,
+          messages: [
+            {
+              role: "system",
+              content: `You are NirveonX AI, a healthcare assistant. Analyze user messages and respond in JSON format.
+
+Available services:
+1. AmboRapid - Emergency ambulance booking
+2. PharmXPlus - Medicine/prescription delivery
+3. FastMediX - Doctor/nurse appointments
+
+For service requests, respond with:
+{
+  "intent": "amborapid" | "pharmxplus" | "fastmedix" | "general",
+  "params": {
+    "name": "extracted name or null",
+    "phoneNumber": "10 digit number or null",
+    "city": "city name or Hyderabad",
+    "address": "address or null",
+    "healthProfessional": "doctor/nurse or null"
+  },
+  "response": "Your friendly response to the user",
+  "needsMoreInfo": true/false,
+  "missingFields": ["list of missing required fields"]
+}
+
+For general chat (greetings, questions about services), respond with:
+{
+  "intent": "general",
+  "response": "Your helpful response explaining services"
+}
+
+Be warm, helpful, and professional. If user asks to book something, try to help them.`,
+            },
+            {
+              role: "user",
+              content: message,
+            },
+          ],
+        }),
+      }
+    );
+
+    const llmData = await llmResponse.json();
+    const aiContent = llmData.choices?.[0]?.message?.content || "";
+
+    console.log("AI Response:", aiContent);
+
+    // Parse the JSON response from LLM
+    let parsed;
+    try {
+      // Extract JSON from response (handle markdown code blocks)
+      const jsonMatch = aiContent.match(/\{[\s\S]*\}/);
+      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : aiContent);
+    } catch (e) {
+      // If parsing fails, return as general response
+      return res.json({
+        message:
+          aiContent ||
+          "I'm here to help with healthcare services! Ask me about ambulances, medicines, or doctor appointments.",
+      });
+    }
+
+    // If it's a general query or needs more info, return the AI response
+    if (parsed.intent === "general" || parsed.needsMoreInfo) {
+      return res.json({ message: parsed.response });
+    }
+
+    // Route to appropriate service
+    const params = parsed.params || {};
+
+    if (parsed.intent === "amborapid") {
+      // Book ambulance
+      const ambulanceId = "AMB-" + Math.floor(1000 + Math.random() * 9000);
+      const eta = Math.floor(8 + Math.random() * 12);
+      const city = params.city || "Hyderabad";
+      const hospital = city.toLowerCase().includes("bang")
+        ? "Manipal Hospital, Bangalore"
+        : "Apollo Hospital, Jubilee Hills";
+
+      return res.json({
+        message: `🚑 **Ambulance Booked Successfully!**
+
+${parsed.response || "Your emergency ambulance is on the way!"}
+
+**Booking Details:**
+• Patient: ${params.name || "Emergency Patient"}
+• Contact: ${params.phoneNumber || "Will call back"}
+• City: ${city}
+
+**Ambulance Info:**
+• ID: ${ambulanceId}
+• Driver: Raju Kumar
+• ETA: ${eta} minutes
+• Nearest Hospital: ${hospital}
+
+📞 Emergency Hotline: 1800-AMBORAPID
+🏥 Stay calm, help is on the way!`,
+      });
+    }
+
+    if (parsed.intent === "pharmxplus") {
+      const orderId = "PX" + Date.now().toString().slice(-8);
+
+      return res.json({
+        message: `💊 **Medicine Order Placed!**
+
+${parsed.response || "Your medicines will be delivered soon!"}
+
+**Order Details:**
+• Order ID: #${orderId}
+• Patient: ${params.name || "Valued Customer"}
+• Contact: ${params.phoneNumber || "Will confirm"}
+• Delivery: ${params.address || "Address needed"}
+
+**Estimated Delivery:** 45-60 minutes
+**Payment:** Cash on Delivery available
+
+📞 Support: 1800-PHARMXPLUS`,
+      });
+    }
+
+    if (parsed.intent === "fastmedix") {
+      const bookingId = "FM" + Date.now().toString().slice(-8);
+      const professional = params.healthProfessional || "doctor";
+      const profName =
+        professional === "doctor" ? "Dr. Rajesh Kumar" : "Nurse Priya Sharma";
+
+      return res.json({
+        message: `✅ **Appointment Confirmed!**
+
+${parsed.response || "Your healthcare professional is on the way!"}
+
+**Appointment Details:**
+• Booking ID: #${bookingId}
+• Patient: ${params.name || "Valued Patient"}
+• Contact: ${params.phoneNumber || "Will confirm"}
+• Location: ${params.address || "Your location"}
+
+**Healthcare Professional:**
+• ${professional.charAt(0).toUpperCase() + professional.slice(1)}: ${profName}
+• ETA: 25-35 minutes
+• Specialization: General Medicine
+
+📞 Support: 1800-FASTMEDIX`,
+      });
+    }
+
+    // Default response
+    return res.json({
+      message:
+        parsed.response || "How can I help you with healthcare services today?",
+    });
+  } catch (error) {
+    console.error("Chat error:", error);
+    return res.json({
+      message: `I'm NirveonX, your healthcare assistant! I can help you with:
+
+🚑 **AmboRapid** - Emergency ambulance (say "I need an ambulance")
+💊 **PharmXPlus** - Medicine delivery (say "Order medicines")  
+👨‍⚕️ **FastMediX** - Doctor/nurse visits (say "Book a doctor")
+
+What do you need help with?`,
+    });
+  }
+});
+
 app.listen(4000, () => {
   console.log("Server is running on 4000");
 });
