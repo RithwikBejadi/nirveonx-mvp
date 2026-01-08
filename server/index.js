@@ -483,35 +483,60 @@ app.post("/chat", async (req, res) => {
           messages: [
             {
               role: "system",
-              content: `You are NirveonX AI, a healthcare assistant. Analyze user messages and respond in JSON format.
+              content: `You are NirveonX AI. You ONLY handle healthcare bookings. NOTHING ELSE.
 
-Available services:
-1. AmboRapid - Emergency ambulance booking
-2. PharmXPlus - Medicine/prescription delivery
-3. FastMediX - Doctor/nurse appointments
+🚫 ABSOLUTE REFUSAL POLICY:
+If question is about:
+- Code/programming (pandas, python, JavaScript, etc.)
+- Homework/math/school
+- General knowledge
+- Technology/computers
+- ANYTHING not healthcare
 
-For service requests, respond with:
-{
-  "intent": "amborapid" | "pharmxplus" | "fastmedix" | "general",
-  "params": {
-    "name": "extracted name or null",
-    "phoneNumber": "10 digit number or null",
-    "city": "city name or Hyderabad",
-    "address": "address or null",
-    "healthProfessional": "doctor/nurse or null"
-  },
-  "response": "Your friendly response to the user",
-  "needsMoreInfo": true/false,
-  "missingFields": ["list of missing required fields"]
-}
+→ DO NOT explain it
+→ DO NOT acknowledge it  
+→ DO NOT answer it
+→ ONLY respond with EXACT refusal text below
 
-For general chat (greetings, questions about services), respond with:
-{
-  "intent": "general",
-  "response": "Your helpful response explaining services"
-}
+REFUSAL TEXT (copy exactly):
+"I'm a healthcare assistant and can only help with:
 
-Be warm, helpful, and professional. If user asks to book something, try to help them.`,
+🚑 Emergency Ambulance Booking
+💊 Medicine Delivery
+👨‍⚕️ Doctor Appointments
+
+I cannot assist with homework, coding, or other topics. How can I help with your healthcare needs?"
+
+ONLY accept healthcare:
+1. AmboRapid - Ambulance
+2. PharmXPlus - Medicine  
+3. FastMediX - Doctor
+
+AMBULANCE requires ALL 5:
+1. Name
+2. Phone
+3. Symptoms (what's wrong?)
+4. City
+5. Landmark (nearby place)
+6. Special needs (optional)
+
+Ask ONE question at a time until you have ALL 5 fields.
+
+RESPONSE FORMAT:
+
+Healthcare:
+{"intent":"amborapid"|"pharmxplus"|"fastmedix", "params":{"name":null,"phoneNumber":null,"symptoms":null,"city":null,"landmark":null,"specialRequirements":null}, "response":"your caring question", "needsMoreInfo":true, "missingFields":["list missing"]}
+
+NON-healthcare (pandas, math, etc):
+{"intent":"general", "response":"I'm a healthcare assistant and can only help with:\n\n🚑 Emergency Ambulance Booking\n💊 Medicine Delivery\n👨‍⚕️ Doctor Appointments\n\nI cannot assist with homework, coding, or other topics. How can I help with your healthcare needs?"}
+
+EXAMPLES:
+Q: "pandas in python" → Use REFUSAL (don't explain pandas!)
+Q: "math homework" → Use REFUSAL  
+Q: "book ambulance" → Ask for name
+Q: "chest pain" → Recognize emergency, ask details
+
+NEVER explain non-healthcare topics. ZERO tolerance.`,
             },
             {
               role: "user",
@@ -551,6 +576,26 @@ Be warm, helpful, and professional. If user asks to book something, try to help 
     const params = parsed.params || {};
 
     if (parsed.intent === "amborapid") {
+      // STRICT VALIDATION: Check ALL required fields for ambulance
+      const requiredFields = [
+        "name",
+        "phoneNumber",
+        "symptoms",
+        "city",
+        "landmark",
+      ];
+      const missingFields = requiredFields.filter((field) => !params[field]);
+
+      if (missingFields.length > 0) {
+        // Still missing required info - don't book yet, ask for it
+        return res.json({
+          message:
+            parsed.response ||
+            "I need some more information to book the ambulance. Could you please provide the missing details?",
+        });
+      }
+
+      // All fields collected - proceed with booking
       // Book ambulance
       const ambulanceId = "AMB-" + Math.floor(1000 + Math.random() * 9000);
       const eta = Math.floor(8 + Math.random() * 12);
