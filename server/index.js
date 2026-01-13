@@ -319,6 +319,19 @@ Total Charges: ₹800 only (Eight hundred)`,
 //1.3
 const transports = {};
 
+// Conversation memory store - track user sessions and their chat history
+const conversations = new Map();
+
+// Clean up old conversations after 30 minutes of inactivity
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, data] of conversations.entries()) {
+    if (now - data.lastActivity > 30 * 60 * 1000) {
+      conversations.delete(userId);
+    }
+  }
+}, 5 * 60 * 1000); // Check every 5 minutes
+
 app.get("/sse", async (req, res) => {
   const transport = new SSEServerTransport("/messages", res);
   transports[transport.sessionId] = transport;
@@ -459,13 +472,33 @@ Emergency: 1-800-FASTMEDIX`,
 // AI-Powered Smart Chat Endpoint
 app.post("/chat", async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, userId, sessionId } = req.body;
+    // Use sessionId if provided, otherwise userId, otherwise "default"
+    const userIdentifier = sessionId || userId || "default";
 
     if (!message) {
       return res.json({ message: "Please send a message!" });
     }
 
-    console.log("Chat received:", message);
+    console.log("Chat received:", message, "from user:", userIdentifier);
+
+    // Get or create conversation history for this user
+    if (!conversations.has(userIdentifier)) {
+      conversations.set(userIdentifier, {
+        messages: [],
+        lastActivity: Date.now(),
+        collectedData: {}, // Store collected ambulance booking data
+      });
+    }
+
+    const userConversation = conversations.get(userIdentifier);
+    userConversation.lastActivity = Date.now();
+
+    // Add user message to history
+    userConversation.messages.push({
+      role: "user",
+      content: message,
+    });
 
     // Use Groq LLM to understand intent and extract parameters
     const llmResponse = await fetch(
@@ -483,65 +516,49 @@ app.post("/chat", async (req, res) => {
           messages: [
             {
               role: "system",
-              content: `You are NirveonX AI. You ONLY handle healthcare bookings. NOTHING ELSE.
+              content: `You are NirveonX, an intelligent and empathetic healthcare assistant. You help people access emergency healthcare services in India.
 
-🚫 ABSOLUTE REFUSAL POLICY:
-If question is about:
-- Code/programming (pandas, python, JavaScript, etc.)
-- Homework/math/school
-- General knowledge
-- Technology/computers
-- ANYTHING not healthcare
+YOUR SERVICES:
+1. 🚑 **Emergency Ambulance (AmboRapid)** - Available in Hyderabad and Bangalore only
+2. 💊 **Medicine Delivery (PharmXPlus)** - Delivers prescribed medicines
+3. 👨‍⚕️ **Doctor Home Visits (FastMediX)** - Doctors, nurses, or medical staff
 
-→ DO NOT explain it
-→ DO NOT acknowledge it  
-→ DO NOT answer it
-→ ONLY respond with EXACT refusal text below
+CONVERSATION STYLE:
+- Be warm, caring, and professional
+- Show empathy for medical emergencies
+- Ask questions naturally, one at a time
+- Remember all information shared in the conversation
+- Never repeat questions you've already asked
 
-REFUSAL TEXT (copy exactly):
-"I'm a healthcare assistant and can only help with:
+AMBULANCE BOOKING PROCESS:
+Collect these details in order:
+1. **Patient Name** - Full name of the person needing help
+2. **Contact Number** - 10-digit phone number
+3. **Medical Emergency** - What symptoms/condition (chest pain, accident, etc.)
+4. **City** - Must be Hyderabad or Bangalore (reject others politely)
+5. **Landmark** - Nearby landmark for faster arrival (hospital, mall, etc.)
+6. **Special Requirements** (optional) - Wheelchair, oxygen, etc.
 
-🚑 Emergency Ambulance Booking
-💊 Medicine Delivery
-👨‍⚕️ Doctor Appointments
+VALIDATION RULES:
+- Phone: Must be 10 digits
+- City: ONLY Hyderabad or Bangalore accepted
+- Emergency: Must be described (not just "yes" or "ambulance needed")
+- Landmark: Must be specific location, not vague
 
-I cannot assist with homework, coding, or other topics. How can I help with your healthcare needs?"
+INTELLIGENT RESPONSES:
+- If user says "I need an ambulance" → Ask for their name warmly
+- If user gives name → Acknowledge and ask for phone number
+- If user provides phone without name → Politely ask for name first
+- If user says city not served → Apologize, list available cities
+- Before final booking → Confirm all details
 
-ONLY accept healthcare:
-1. AmboRapid - Ambulance
-2. PharmXPlus - Medicine  
-3. FastMediX - Doctor
+NON-HEALTHCARE QUERIES:
+If asked about coding, homework, math, etc. → Politely decline and redirect to healthcare
 
-AMBULANCE requires ALL 5:
-1. Name
-2. Phone
-3. Symptoms (what's wrong?)
-4. City
-5. Landmark (nearby place)
-6. Special needs (optional)
-
-Ask ONE question at a time until you have ALL 5 fields.
-
-RESPONSE FORMAT:
-
-Healthcare:
-{"intent":"amborapid"|"pharmxplus"|"fastmedix", "params":{"name":null,"phoneNumber":null,"symptoms":null,"city":null,"landmark":null,"specialRequirements":null}, "response":"your caring question", "needsMoreInfo":true, "missingFields":["list missing"]}
-
-NON-healthcare (pandas, math, etc):
-{"intent":"general", "response":"I'm a healthcare assistant and can only help with:\n\n🚑 Emergency Ambulance Booking\n💊 Medicine Delivery\n👨‍⚕️ Doctor Appointments\n\nI cannot assist with homework, coding, or other topics. How can I help with your healthcare needs?"}
-
-EXAMPLES:
-Q: "pandas in python" → Use REFUSAL (don't explain pandas!)
-Q: "math homework" → Use REFUSAL  
-Q: "book ambulance" → Ask for name
-Q: "chest pain" → Recognize emergency, ask details
-
-NEVER explain non-healthcare topics. ZERO tolerance.`,
+TONE: Professional yet caring, urgent for emergencies, reassuring always.`,
             },
-            {
-              role: "user",
-              content: message,
-            },
+            // Send the FULL conversation history for context
+            ...userConversation.messages,
           ],
         }),
       }
@@ -551,6 +568,12 @@ NEVER explain non-healthcare topics. ZERO tolerance.`,
     const aiContent = llmData.choices?.[0]?.message?.content || "";
 
     console.log("AI Response:", aiContent);
+
+    // Store AI response in conversation history
+    userConversation.messages.push({
+      role: "assistant",
+      content: aiContent,
+    });
 
     // Parse the JSON response from LLM
     let parsed;
