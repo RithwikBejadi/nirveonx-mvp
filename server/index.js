@@ -30,6 +30,17 @@ app.use((req, res, next) => {
   next();
 });
 
+// Health check endpoint
+app.get("/", (req, res) => {
+  res.json({
+    status: "healthy",
+    service: "NirveonX MCP Server",
+    version: "1.0.0",
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
+  });
+});
+
 function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371; // Earth radius in km
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
