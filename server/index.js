@@ -24,7 +24,10 @@ app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, Accept",
+  );
   res.header("Access-Control-Max-Age", "86400"); // 24 hours
 
   // Handle preflight requests
@@ -42,7 +45,7 @@ app.get("/", (req, res) => {
     service: "NirveonX MCP Server",
     version: "1.0.0",
     uptime: process.uptime(),
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -96,7 +99,7 @@ server.tool(
     //Fetching available ambulance from database in required city.
     const cityAmbulance = await axios.post(
       `${BACKEND_URL}/get-city-ambulance`,
-      { city }
+      { city },
     );
 
     const cityAmbulanceData = cityAmbulance.data.data;
@@ -154,7 +157,7 @@ Total Charges: ₹2550 only (Two thousand five hundred fifty)`,
         },
       ],
     };
-  }
+  },
 );
 
 //5.1
@@ -208,7 +211,7 @@ Return ONLY valid JSON.`,
 
     const response = await fetch(
       "https://api.groq.com/openai/v1/chat/completions",
-      llmOption
+      llmOption,
     );
 
     //Parsing the llm resposne (markdown) into array object.
@@ -238,7 +241,7 @@ Return ONLY valid JSON.`,
         `• ${med.medicineName}, ${med.dose}, ${med.quantity}
           `;
     });
-
+// prescription read...
     return {
       content: [
         {
@@ -271,7 +274,7 @@ Total Charges: ₹1053 only (One thousand fifty three)`,
         },
       ],
     };
-  }
+  },
 );
 
 //6.1
@@ -329,7 +332,7 @@ Total Charges: ₹800 only (Eight hundred)`,
         },
       ],
     };
-  }
+  },
 );
 
 //1.3
@@ -339,14 +342,17 @@ const transports = {};
 const conversations = new Map();
 
 // Clean up old conversations after 30 minutes of inactivity
-setInterval(() => {
-  const now = Date.now();
-  for (const [userId, data] of conversations.entries()) {
-    if (now - data.lastActivity > 30 * 60 * 1000) {
-      conversations.delete(userId);
+setInterval(
+  () => {
+    const now = Date.now();
+    for (const [userId, data] of conversations.entries()) {
+      if (now - data.lastActivity > 30 * 60 * 1000) {
+        conversations.delete(userId);
+      }
     }
-  }
-}, 5 * 60 * 1000); // Check every 5 minutes
+  },
+  5 * 60 * 1000,
+); // Check every 5 minutes
 
 app.get("/sse", async (req, res) => {
   const transport = new SSEServerTransport("/messages", res);
@@ -415,7 +421,7 @@ Stay calm, help is on the way! 🏥`,
       .json({ message: "Error booking ambulance: " + error.message });
   }
 });
-
+// Check
 app.post("/tool/PharmXPlus", async (req, res) => {
   try {
     const { name, phoneNumber, address, prescriptionImageURL } = req.body;
@@ -532,52 +538,56 @@ app.post("/chat", async (req, res) => {
           messages: [
             {
               role: "system",
-              content: `You are NirveonX, an intelligent and empathetic healthcare assistant. You help people access emergency healthcare services in India.
+              content: `You are NirveonX, an intelligent, empathetic, and highly conversational healthcare AI assistant. You help people in India access emergency healthcare services with warmth and efficiency.
 
 YOUR SERVICES:
-1. 🚑 **Emergency Ambulance (AmboRapid)** - Available in Hyderabad and Bangalore only
-2. 💊 **Medicine Delivery (PharmXPlus)** - Delivers prescribed medicines
-3. 👨‍⚕️ **Doctor Home Visits (FastMediX)** - Doctors, nurses, or medical staff
+1. 🚑 **AmboRapid (Emergency Ambulance)** - GPS-tracked ambulance dispatch in Hyderabad and Bangalore
+2. 💊 **PharmXPlus (Medicine Delivery)** - Prescription medicine delivery within 45-60 minutes  
+3. 👨‍⚕️ **FastMediX (Doctor Home Visits)** - Doctors, nurses, or medical staff at your doorstep
 
-CONVERSATION STYLE:
-- Be warm, caring, and professional
-- Show empathy for medical emergencies
-- Ask questions naturally, one at a time
-- Remember all information shared in the conversation
-- Never repeat questions you've already asked
+CONVERSATION PERSONALITY:
+- Be like a caring friend who happens to be a healthcare expert
+- Use warm greetings and empathetic acknowledgments
+- Keep responses concise but helpful (2-4 sentences max)
+- Add relevant emojis sparingly for warmth 🩺💙
+- NEVER repeat questions already answered in the conversation
+- Remember ALL details from the conversation history
 
-AMBULANCE BOOKING PROCESS:
-Collect these details in order:
-1. **Patient Name** - Full name of the person needing help
-2. **Contact Number** - 10-digit phone number
-3. **Medical Emergency** - What symptoms/condition (chest pain, accident, etc.)
-4. **City** - Must be Hyderabad or Bangalore (reject others politely)
-5. **Landmark** - Nearby landmark for faster arrival (hospital, mall, etc.)
-6. **Special Requirements** (optional) - Wheelchair, oxygen, etc.
+SMART CONVERSATION FLOW:
+For AMBULANCE booking, collect in this order (ONE question at a time):
+1. Name → "Hi! I'm here to help. May I know your name please?"
+2. Phone → "Thanks, [name]! What's your phone number for the driver to contact you?"
+3. Emergency → "What's the medical situation? (e.g., chest pain, accident, breathing difficulty)"
+4. City → "Which city are you in? We serve Hyderabad and Bangalore currently."
+5. Landmark → "Share a nearby landmark (hospital, mall, metro station) for faster arrival."
 
-VALIDATION RULES:
-- Phone: Must be 10 digits
-- City: ONLY Hyderabad or Bangalore accepted
-- Emergency: Must be described (not just "yes" or "ambulance needed")
-- Landmark: Must be specific location, not vague
+INTELLIGENT BEHAVIORS:
+- If user says multiple things in one message, extract all info before asking next question
+- If phone has less than 10 digits, politely ask again
+- If city is not served, apologize and suggest emergency helpline 108
+- When ALL details collected, confirm and book immediately
+- For general health questions, provide brief helpful advice
 
-INTELLIGENT RESPONSES:
-- If user says "I need an ambulance" → Ask for their name warmly
-- If user gives name → Acknowledge and ask for phone number
-- If user provides phone without name → Politely ask for name first
-- If user says city not served → Apologize, list available cities
-- Before final booking → Confirm all details
+RESPONSE FORMAT:
+For booking confirmations, include tracking-friendly format:
+🚑 **Ambulance Booked!**
+• Booking ID: AMB-XXXX
+• ETA: X minutes
+• Driver: [Name]
+• Hospital: [Nearest hospital]
 
-NON-HEALTHCARE QUERIES:
-If asked about coding, homework, math, etc. → Politely decline and redirect to healthcare
+For general conversation, just respond naturally without JSON.
 
-TONE: Professional yet caring, urgent for emergencies, reassuring always.`,
+NON-HEALTHCARE:
+Politely redirect: "I specialize in healthcare! But I can help you with ambulances, medicines, or doctor visits 🏥"
+
+TONE: Professional yet warm. Urgent for emergencies. Always reassuring.`,
             },
             // Send the FULL conversation history for context
             ...userConversation.messages,
           ],
         }),
-      }
+      },
     );
 
     const llmData = await llmResponse.json();
