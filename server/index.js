@@ -6,7 +6,20 @@ import { z } from "zod";
 import { config } from "dotenv";
 import axios from "axios";
 import { he } from "zod/locales";
+import { v2 as cloudinary } from "cloudinary";
+import multer from "multer";
 config();
+
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// Configure multer for memory storage
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
 //1.2
 const server = new McpServer({
@@ -47,6 +60,48 @@ app.get("/", (req, res) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
   });
+});
+
+// Image upload endpoint - accepts base64 or multipart file
+app.post("/upload-image", upload.single("image"), async (req, res) => {
+  try {
+    let imageBuffer;
+    let imageBase64;
+
+    // Check if image is sent as multipart file
+    if (req.file) {
+      imageBuffer = req.file.buffer;
+      imageBase64 = `data:${req.file.mimetype};base64,${imageBuffer.toString("base64")}`;
+    }
+    // Check if image is sent as base64 in body
+    else if (req.body.image) {
+      imageBase64 = req.body.image;
+      // Handle if base64 doesn't have data URI prefix
+      if (!imageBase64.startsWith("data:")) {
+        imageBase64 = `data:image/jpeg;base64,${imageBase64}`;
+      }
+    } else {
+      return res.status(400).json({ error: "No image provided" });
+    }
+
+    // Upload to Cloudinary
+    const uploadResult = await cloudinary.uploader.upload(imageBase64, {
+      folder: "nirveonx-prescriptions",
+      resource_type: "auto",
+    });
+
+    res.json({
+      success: true,
+      url: uploadResult.secure_url,
+      publicId: uploadResult.public_id,
+    });
+  } catch (error) {
+    console.error("Image upload error:", error);
+    res.status(500).json({
+      error: "Failed to upload image",
+      message: error.message,
+    });
+  }
 });
 
 function haversine(lat1, lon1, lat2, lon2) {
@@ -422,9 +477,103 @@ Stay calm, help is on the way! 🏥`,
   }
 });
 // Check
-app.post("/tool/PharmXPlus", async (req, res) => {
+app.post("/tool/PharmXPlus", upload.single("prescriptionImage"), async (req, res) => {
   try {
-    const { name, phoneNumber, address, prescriptionImageURL } = req.body;
+    let { name, phoneNumber, address, prescriptionImageURL } = req.body;
+    
+    // If image file is uploaded, upload to Cloudinary first
+    if (req.file) {
+      const imageBase64 = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+      const uploadResult = await cloudinary.uploader.upload(imageBase64, {
+        folder: "nirveonx-prescriptions",
+        resource_type: "auto",
+      });
+      prescriptionImageURL = uploadResult.secure_url;
+    }
+    // If base64 image is sent in body
+    else if (req.body.prescriptionImage) {
+      let imageBase64 = req.body.prescriptionImage;
+      if (!imageBase64.startsWith("data:")) {
+        imageBase64 = `data:image/jpeg;base64,${imageBase64}`;
+      }
+      const uploadResult = await cloudinary.uploader.upload(imageBase64, {
+        folder: "nirveonx-prescriptions",
+        resource_type: "auto",
+      });
+      prescriptionImageURL = uploadResult.secure_url;
+    }
+
+    // Analyze prescription with Groq Vision API if URL is available
+    let medicinesList = [];
+    if (prescriptionImageURL) {
+      try {
+        const llmOption = {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "meta-llama/llama-4-scout-17b-16e-instruct",
+            temperature: 0.2,
+            max_completion_tokens: 512,
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: `You are reading a medical prescription image.
+Extract ONLY medicines that are clearly written.
+Do NOT guess.
+
+Return a JSON array with objects:
+medicineName, dose, quantity.
+If unclear, use "UNCLEAR".
+Return ONLY valid JSON.`,
+                  },
+                  {
+                    type: "image_url",
+                    image_url: {
+                      url: prescriptionImageURL,
+                    },
+                  },
+                ],
+              },
+            ],
+          }),
+        };
+
+        const response = await fetch(
+          "https://api.groq.com/openai/v1/chat/completions",
+          llmOption,
+        );
+        const data = await response.json();
+        
+        if (data.choices && data.choices[0]) {
+          const jsonString = data.choices[0].message.content
+            .replace(/```json/g, "")
+            .replace(/```/g, "")
+            .trim();
+          medicinesList = JSON.parse(jsonString);
+        }
+      } catch (visionError) {
+        console.error("Vision API error:", visionError);
+        // Continue with default medicines if vision fails
+      }
+    }
+
+    // Format medicines list
+    let medicineString = "";
+    if (medicinesList.length > 0) {
+      medicineString = "**Prescribed Medications:**\n";
+      medicinesList.forEach((med, idx) => {
+        medicineString += `${idx + 1}. ${med.medicineName}, ${med.dose}, ${med.quantity}\n`;
+      });
+    } else {
+      medicineString = "**Prescribed Medications:**\n1. Paracetamol 500mg - 10 tablets\n2. Amoxicillin 250mg - 6 capsules\n";
+    }
+
     res.json({
       message: `🎉 Order placed successfully with PharmXPlus!
 
@@ -434,12 +583,9 @@ Patient: ${name}
 Contact: ${phoneNumber}
 Delivery Address: ${address}
 
-**Prescribed Medications:**
-1. Paracetamol 500mg - 10 tablets
-2. Amoxicillin 250mg - 6 capsules
-
+${medicineString}
 **Prescription:**
-📋 ${prescriptionImageURL}
+📋 ${prescriptionImageURL || "No prescription uploaded"}
 
 **Payment Summary**
 • Medicines: ₹450
@@ -450,6 +596,7 @@ Estimated Delivery: 45-60 minutes
 Track your order: pharmxplus.com/track`,
     });
   } catch (error) {
+    console.error("PharmXPlus error:", error);
     res.status(500).json({ message: "Error placing order: " + error.message });
   }
 });
